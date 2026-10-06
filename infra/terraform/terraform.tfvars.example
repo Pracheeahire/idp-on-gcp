@@ -1,0 +1,12 @@
+# Copy this file to terraform.tfvars and fill in your values.
+# terraform.tfvars is git-ignored, so your settings stay local.
+
+project_id = "prachee-idp-lab"
+
+# Optional overrides (defaults shown)
+# region         = "asia-south1"
+# zone           = "asia-south1-a"
+# cluster_name   = "idp-cluster"
+# node_count     = 2
+# machine_type   = "e2-standard-2"
+# use_spot_nodes = true
