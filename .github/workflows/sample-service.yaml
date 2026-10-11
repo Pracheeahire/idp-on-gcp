@@ -1,0 +1,124 @@
+name: sample-service CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/sample-service/**"
+      - ".github/workflows/sample-service.yaml"
+  pull_request:
+    paths:
+      - "apps/sample-service/**"
+  workflow_dispatch:
+
+env:
+  REGION: asia-south1
+  ZONE: asia-south1-a
+  CLUSTER: idp-cluster
+  IMAGE: asia-south1-docker.pkg.dev/${{ vars.GCP_PROJECT_ID }}/apps/sample-service
+  APP_DIR: apps/sample-service
+
+jobs:
+  # 1. Test on every push and pull request.
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ env.APP_DIR }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: ${{ env.APP_DIR }}/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest -v
+
+  # 2. Build and push the image, only from main.
+  build:
+    needs: test
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # lets the job request a GitHub OIDC token for keyless GCP auth
+    outputs:
+      image: ${{ steps.meta.outputs.image }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: meta
+        run: echo "image=${IMAGE}:${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Check the registry exists (it is removed with the nightly destroy)
+        run: |
+          if ! gcloud artifacts repositories describe apps --location "$REGION" > /dev/null 2>&1; then
+            echo "::error::Artifact Registry 'apps' not found. Run 'terraform apply' in infra/terraform first."
+            exit 1
+          fi
+
+      - name: Build and push
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+          docker build -t "${{ steps.meta.outputs.image }}" "$APP_DIR"
+          docker push "${{ steps.meta.outputs.image }}"
+
+  # 3. Deploy to GKE, then roll back automatically if the rollout fails.
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - uses: google-github-actions/get-gke-credentials@v2
+        with:
+          cluster_name: ${{ env.CLUSTER }}
+          location: ${{ env.ZONE }}
+
+      - name: Render manifests with this commit's image
+        run: |
+          IMG="${{ needs.build.outputs.image }}"
+          sed -i "s|image: .*sample-service:.*|image: ${IMG}|" "$APP_DIR/deploy/k8s/deployment.yaml"
+          sed -i "s|value: \"v1\"|value: \"${GITHUB_SHA::7}\"|" "$APP_DIR/deploy/k8s/deployment.yaml"
+          grep -n "image:\|APP_VERSION" -A1 "$APP_DIR/deploy/k8s/deployment.yaml"
+
+      - name: Apply
+        run: |
+          kubectl apply -f "$APP_DIR/deploy/k8s/namespace.yaml"
+          kubectl apply -f "$APP_DIR/deploy/k8s/"
+
+      - name: Wait for rollout
+        id: rollout
+        run: kubectl -n sample rollout status deployment/sample-service --timeout=180s
+
+      - name: Roll back on failure
+        if: failure() && steps.rollout.outcome == 'failure'
+        run: |
+          kubectl -n sample describe deployment sample-service | tail -20
+          kubectl -n sample rollout undo deployment/sample-service
+          kubectl -n sample rollout status deployment/sample-service --timeout=120s
+
+      - name: Summary
+        if: success()
+        run: |
+          IP=$(kubectl -n sample get service sample-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+          {
+            echo "### Deployed ${{ needs.build.outputs.image }}"
+            echo "App: http://${IP:-<pending>}/"
+          } >> "$GITHUB_STEP_SUMMARY"

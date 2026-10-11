@@ -1,7 +1,7 @@
 # Copy this file to terraform.tfvars and fill in your values.
 # terraform.tfvars is git-ignored, so your settings stay local.
 
-project_id = "prachee-idp-lab"
+project_id = "prachiplatform-lab-2026"
 
 # Optional overrides (defaults shown)
 # region         = "asia-south1"

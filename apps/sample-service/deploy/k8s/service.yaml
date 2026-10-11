@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-service
+  namespace: sample
+  labels:
+    app: sample-service
+spec:
+  type: LoadBalancer   # GKE creates a Google Cloud load balancer with a public IP
+  selector:
+    app: sample-service
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

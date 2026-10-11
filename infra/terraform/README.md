@@ -20,7 +20,7 @@ From this folder, in PowerShell:
 Copy-Item terraform.tfvars.example terraform.tfvars
 
 # 2. Connect to the remote state bucket
-terraform init -backend-config="bucket=prachee-idp-lab-tfstate"
+terraform init -backend-config="bucket=prachiplatform-lab-2026-tfstate"
 
 # 3. Check formatting and syntax
 terraform fmt
@@ -33,7 +33,7 @@ terraform plan
 terraform apply
 
 # 6. Point kubectl at the cluster and check the nodes
-gcloud container clusters get-credentials idp-cluster --zone asia-south1-a --project prachee-idp-lab
+gcloud container clusters get-credentials idp-cluster --zone asia-south1-a --project prachiplatform-lab-2026
 kubectl get nodes
 ```
 
