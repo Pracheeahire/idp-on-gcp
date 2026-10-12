@@ -1,0 +1,20 @@
+# Tells Prometheus to scrape the app: find the Service labelled
+# app=sample-service and read /metrics on its "http" port every 15s.
+#
+# Kept outside deploy/k8s on purpose: the ServiceMonitor kind only exists once
+# the monitoring stack is installed, so the CI deploy would fail without it.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-service
+  namespace: sample
+  labels:
+    app: sample-service
+spec:
+  selector:
+    matchLabels:
+      app: sample-service
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

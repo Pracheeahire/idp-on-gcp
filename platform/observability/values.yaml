@@ -1,0 +1,67 @@
+# Helm values for kube-prometheus-stack (Prometheus + Alertmanager + Grafana
+# + kube-state-metrics + node-exporter), sized for a small lab GKE cluster.
+#
+# Install:
+#   helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+#     -n monitoring --create-namespace -f platform/observability/values.yaml
+# Slack alerts (optional): add  -f platform/observability/alertmanager-slack.local.yaml
+
+# Short, predictable names: services become kps-prometheus, kps-alertmanager, grafana.
+fullnameOverride: kps
+
+# GKE runs the control plane for you and doesn't expose these components.
+# Scraping them would only create false "target down" alerts, so turn them off.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+
+defaultRules:
+  rules:
+    etcd: false
+    kubeControllerManager: false
+    kubeSchedulerAlerting: false
+    kubeSchedulerRecording: false
+    kubeProxy: false
+
+prometheus:
+  prometheusSpec:
+    retention: 2d
+    scrapeInterval: 15s
+    evaluationInterval: 15s
+    # Pick up ServiceMonitors and PrometheusRules from ANY namespace, not only
+    # ones labelled for this Helm release. App teams own their own monitoring files.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+
+alertmanager:
+  alertmanagerSpec:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+
+grafana:
+  fullnameOverride: grafana
+  # Lab only. In production, use grafana.admin.existingSecret instead.
+  adminPassword: idp-lab-admin
+  defaultDashboardsTimezone: browser
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: ALL

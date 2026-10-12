@@ -1,0 +1,79 @@
+# Alert rules for sample-service. Probe traffic (/health, /ready) is excluded
+# from user-facing signals: thousands of always-200 probe calls would hide real errors.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: sample-service
+  namespace: sample
+  labels:
+    app: sample-service
+spec:
+  groups:
+    - name: sample-service.alerts
+      rules:
+        - alert: SampleServiceHighErrorRate
+          expr: |
+            sum(rate(http_requests_total{namespace="sample", path!~"/health|/ready", status=~"5.."}[2m]))
+              /
+            sum(rate(http_requests_total{namespace="sample", path!~"/health|/ready"}[2m]))
+              > 0.05
+          for: 1m
+          labels:
+            severity: critical
+            namespace: sample
+          annotations:
+            summary: "sample-service error rate is {{ $value | humanizePercentage }}"
+            description: "More than 5% of requests are failing with 5xx (2-minute window)."
+
+        - alert: SampleServiceHighLatencyP95
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket{namespace="sample", path!~"/health|/ready"}[2m]))
+            ) > 1
+          for: 1m
+          labels:
+            severity: warning
+            namespace: sample
+          annotations:
+            summary: "sample-service p95 latency is {{ $value | humanizeDuration }}"
+            description: "95% of requests should finish in under 1 second."
+
+        - alert: SampleServicePodRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="sample"}[10m]) > 2
+          labels:
+            severity: warning
+            namespace: sample
+          annotations:
+            summary: "Pod {{ $labels.pod }} restarted {{ $value | printf \"%.0f\" }} times in 10 minutes"
+            description: "Check: kubectl -n sample describe pod {{ $labels.pod }} (look at Last State)."
+
+        - alert: SampleServiceDown
+          expr: absent(up{namespace="sample", service="sample-service"} == 1)
+          for: 1m
+          labels:
+            severity: critical
+            namespace: sample
+          annotations:
+            summary: "No sample-service pod is being scraped successfully"
+            description: "Prometheus can't reach any pod. Check pods, endpoints and the ServiceMonitor."
+
+        # SLO: 99.5% of requests succeed (error budget 0.5%).
+        # Fast burn: spending budget 14.4x faster than allowed, confirmed over a
+        # long and a short window, which would burn 2% of a month's budget in 1 hour.
+        - alert: SampleServiceErrorBudgetFastBurn
+          expr: |
+            (
+              sum(rate(http_requests_total{namespace="sample", path!~"/health|/ready", status=~"5.."}[1h]))
+                / sum(rate(http_requests_total{namespace="sample", path!~"/health|/ready"}[1h]))
+            ) > (14.4 * 0.005)
+            and
+            (
+              sum(rate(http_requests_total{namespace="sample", path!~"/health|/ready", status=~"5.."}[5m]))
+                / sum(rate(http_requests_total{namespace="sample", path!~"/health|/ready"}[5m]))
+            ) > (14.4 * 0.005)
+          labels:
+            severity: critical
+            namespace: sample
+          annotations:
+            summary: "sample-service is burning its error budget 14.4x too fast"
+            description: "At this rate the 30-day error budget for the 99.5% SLO is gone in about 2 days."

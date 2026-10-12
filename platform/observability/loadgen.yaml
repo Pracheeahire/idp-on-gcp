@@ -1,0 +1,41 @@
+# Steady background traffic so dashboards and alerts have something to show.
+# About 10 requests/second from inside the cluster. Lab use only.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: sample
+  labels:
+    app: loadgen
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgen
+  template:
+    metadata:
+      labels:
+        app: loadgen
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 100
+      containers:
+        - name: loadgen
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              echo "sending traffic to sample-service"
+              while true; do
+                curl -s -o /dev/null http://sample-service.sample.svc.cluster.local/api/items
+                curl -s -o /dev/null http://sample-service.sample.svc.cluster.local/
+                sleep 0.2
+              done
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 100m
+              memory: 32Mi

@@ -17,3 +17,6 @@ __pycache__/
 *.json.key
 .env
 .DS_Store
+
+# Local secrets (e.g. Slack webhook)
+*.local.yaml
